@@ -63,14 +63,3 @@ curl -s -X POST http://localhost:8001 \
 	-H "Content-Type: application/x-amz-json-1.0" \
 	-d '{}' | jq .
 ```
-
-Lưu ý
- - README này KHÔNG tiết lộ bất kỳ giá trị trong `.env` — chỉ tên biến được liệt kê để bạn cấu hình riêng.
- - Mock server lưu trữ dữ liệu trong bộ nhớ (RAM). Khởi động lại server sẽ xóa dữ liệu mock.
- - File `mock.js` và các file helper đã được chuyển để đọc cấu hình từ `process.env`. Nếu muốn, bạn có thể chuyển toàn bộ dự án sang ESM hoặc giữ CommonJS cho nhất quán.
-
-Gợi ý phát triển
- - Nếu bạn muốn mock phức tạp hơn (ví dụ lưu persistence, nhiều trạng thái message, dead-letter handling), tôi có thể mở rộng server để persist vào file JSON tạm hoặc cung cấp endpoints HTTP để reset/inspect state.
-
-Liên hệ
- - Nếu cần tôi cập nhật code để log rõ ràng hơn, thêm endpoints kiểm tra, hoặc chạy smoke-tests tự động, nói tôi biết — tôi có thể thực hiện các thay đổi nhỏ ngay lập tức.
