@@ -7,7 +7,7 @@ const q = require('@aws-sdk/client-sqs');
 const secrets = require('@aws-sdk/client-secrets-manager');
 let server, endpoint, db, s3, sqs, secret;
 before(async () => {
-  server = createApp().listen(0,'127.0.0.1');
+  server = createApp({persist:false}).listen(0,'127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
   endpoint = `http://127.0.0.1:${server.address().port}`;
   const options = { endpoint, region:'us-east-1',credentials:{accessKeyId:'test',secretAccessKey:'test'},maxAttempts:1 };
