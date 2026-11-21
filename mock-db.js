@@ -1,20 +1,4 @@
-require('dotenv').config();
-const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
-
-const REGION = process.env.AWS_REGION;
-const ENDPOINT = process.env.DYNAMODB_ENDPOINT;
-const CREDENTIALS = {
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-};
-
-exports.connectToDynamoDb = async () => {
-  const dynamoDB = new DynamoDBClient({
-    region: REGION,
-    endpoint: ENDPOINT,
-    credentials: CREDENTIALS,
-  });
-  return dynamoDB;
-};
-
+const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
+const { clientConfig } = require('./local-config');
+exports.connectToDynamoDb = async () => new DynamoDBClient(clientConfig('DYNAMODB'));
 exports.getInstanceDynamoDB = exports.connectToDynamoDb;

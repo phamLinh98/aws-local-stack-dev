@@ -1,10 +1,12 @@
 {
   "name": "aws-local-stack-dev",
   "version": "1.0.0",
-  "description": "",
+  "description": "Local AWS mock server with a browser console for Lambda, S3, DynamoDB, SQS and Secrets Manager",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test": "node --test test/*.test.js"
   },
   "repository": {
     "type": "git",

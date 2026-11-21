@@ -11,7 +11,7 @@ const { handler } = require("../src/lambda/get-csv-read-detail-update-inprocessi
         receiptHandle: "VALID_RECEIPT_HANDLE_FROM_RECEIVE_MESSAGE",
         s3: {
           bucket: {
-            name: process.env.UPLOAD_CSV_TABLE_NAME,
+            name: process.env.BUCKET_CSV_NAME,
           },
           object: {
             key:

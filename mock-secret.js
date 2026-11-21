@@ -1,19 +1,9 @@
 require('dotenv').config();
 const { GetSecretValueCommand, SecretsManagerClient } = require("@aws-sdk/client-secrets-manager");
 
-const REGION = process.env.AWS_REGION;
-const ENDPOINT = process.env.SECRETS_ENDPOINT;
-const CREDENTIALS = {
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-};
-const secret_name = process.env.SECRET_NAME;
-
-exports.secretsClient = new SecretsManagerClient({
-  region: REGION,
-  endpoint: ENDPOINT,
-  credentials: CREDENTIALS,
-});
+const { clientConfig } = require('./local-config');
+const secret_name = process.env.SECRET_NAME || 'local-config';
+exports.secretsClient = new SecretsManagerClient(clientConfig('SECRETS'));
 
 exports.getSecretOfKey = async (key) => {
   try {
@@ -31,7 +21,6 @@ exports.getSecretOfKey = async (key) => {
     }
 
     const secrets = JSON.parse(secretString);
-    console.log("🔐 Secrets:", secrets);
 
     if (!(key in secrets)) {
       console.warn(`⚠️ Key "${key}" not found in secrets`);
