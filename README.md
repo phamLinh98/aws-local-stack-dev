@@ -125,3 +125,13 @@ Terminal chạy bằng root bên trong container có giới hạn RAM cũ, khôn
 ```bash
 npm run test:terminal # cần Docker và image Ubuntu; test PTY, shell state, resize, origin
 ```
+
+## ECS Fargate local và xem container
+
+Deploy service chọn **Fargate · local simulation** (mặc định UI), không cần EC2 instance. Local profile hỗ trợ 0.25 vCPU với 512/1024/2048 MB và 0.5 vCPU với 1024/2048/3072/4096 MB. Đây là tập con của [các cỡ Fargate AWS](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-cpu-memory-error.html). CPU/RAM được áp vào Docker cgroup, tách khỏi budget EC2. API cũ không gửi launchType tiếp tục dùng `LOCAL` (1 vCPU, 128/512/1024 MB).
+
+Màn hình Clusters hiển thị service, running/pending task và tổng container. Bấm tên cluster để tới chi tiết. Mỗi service có launch type, task definition local, running/desired, trạng thái STABLE/DEGRADED/IN_PROGRESS, scale/reconcile và deployment events. Mỗi task có container ID/image, health, start time, CPU/RAM, exit code/OOM, network IP, published port và nút lấy log riêng. Link Open HTTP phù hợp workload HTTP; protocol khác dùng địa chỉ port với client tương ứng.
+
+Bấm Refresh để đọc trạng thái Docker mới; không có polling nền. STABLE nghĩa số process container đang chạy bằng desired, không chứng minh ứng dụng đã ready; health hiển thị riêng nếu image có Docker HEALTHCHECK. Task đã thoát vẫn xuất hiện với exit code cho tới khi scale/reconcile. Scale 0 dừng và xóa container service, không cần pull image. Metadata được lưu trong SQLite qua restart.
+
+Đây là scheduler học tập trên Docker một máy, chưa cung cấp control-plane AWS Fargate, VPC/ENI/IAM, ALB, autoscaling, task definition revision management hay tự thay container khi crash. Một task local hiện tương ứng một container. Docker local mode cũ giữ nguyên và không gắn với EC2 container của lab.

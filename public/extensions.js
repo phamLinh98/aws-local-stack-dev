@@ -20,10 +20,7 @@ function infrastructurePage(id) {
     html+=formPanel('Create repository','ecr-create',field('Repository name','name','my-app'),'Create repository');
     html+=resourceCards(infrastructure.repositories,v=>`<h2>${escapeHtml(v.name)}</h2><form data-ext-form="ecr-push" class="compact-form"><input type="hidden" name="name" value="${escapeHtml(v.name)}">${field('Source Docker image','image','alpine:3.21')}${field('Tag','tag','latest')}<button class="button primary">Tag & push</button></form>${v.tags.map(t=>`<div class="version-row"><div><code>${escapeHtml(t.image)}</code><p class="hint">${bytes(t.size)} · ${escapeHtml(t.digest)}</p></div>${actionButton('Pull','ecr-pull',v.name,`data-tag="${escapeHtml(t.tag)}"`)}</div>`).join('')||'<p class="hint">No images pushed yet.</p>'}`);
   }
-  if(id==='ecs') {
-    html+=formPanel('Create cluster','ecs-create',field('Cluster name','name','local-cluster'),'Create cluster');
-    html+=resourceCards(infrastructure.clusters,c=>`<h2>${escapeHtml(c.name)}</h2><p class="hint">Services reconcile on Deploy / Scale. This learning scheduler does not implement Fargate, load balancers or continuous health replacement.</p><form class="compact-form" data-ext-form="ecs-service"><input type="hidden" name="name" value="${escapeHtml(c.name)}"><div class="settings-grid">${field('Service name','service','web')}${field('Image (ECR URL or public image)','image','nginx:alpine')}${memoryField(128)}${field('Desired tasks (0–4)','replicas',1,'number')}${field('Container port (0 = none)','port',80,'number')}<div><label>Command · JSON array<input name="command" value="[]"></label></div></div><button class="button primary">Deploy service</button></form>${c.services.map(s=>`<div class="nested-resource"><h3>${escapeHtml(s.name)}</h3><p class="subtitle">${escapeHtml(s.image)} · ${s.memory} MB per task</p><form data-ext-form="ecs-scale" class="compact-form"><input type="hidden" name="name" value="${escapeHtml(c.name)}"><input type="hidden" name="service" value="${escapeHtml(s.name)}">${field('Desired tasks','replicas',s.desired,'number')}<button class="button">Scale / reconcile</button>${actionButton('Collect logs','ecs-logs',c.name,`data-service="${escapeHtml(s.name)}"`)}</form>${s.tasks.map(t=>`<p class="hint"><code>${escapeHtml(t.container)}</code> · ${escapeHtml(t.status)} ${ports(t.ports)}</p>`).join('')}</div>`).join('')}`);
-  }
+  if(id==='ecs') html+=ecsWorkspace();
   if(id==='rds') {
     html+=formPanel('Create database instance','rds-create',field('Database name','name','learning-db')+selectField('Engine','engine',[['postgres','PostgreSQL 16 · 128 MB'],['mysql','MySQL 8.4 · 512 MB']],'postgres'),'Create database');
     html+=resourceCards(infrastructure.databases,d=>`<h2>${escapeHtml(d.name)}</h2><p class="subtitle">${escapeHtml(d.engine)} · ${escapeHtml(d.status)} · ${d.memory} MB</p><p class="hint">${ports(d.ports)}<br>Persistent Docker volume: ${escapeHtml(d.volume)}. Initial startup may take a minute.</p><div class="form-actions">${actionButton('Start','rds-start',d.name)}${actionButton('Stop','rds-stop',d.name)}${actionButton('Connection credentials','rds-credentials',d.name)}</div>${rdsTableBrowser(d)}<form data-ext-form="rds-query"><input type="hidden" name="name" value="${escapeHtml(d.name)}"><label>SQL editor<textarea name="sql" rows="5" spellcheck="false">SELECT version();</textarea></label><button class="button primary">Run SQL</button></form>`);
@@ -55,7 +52,7 @@ async function handleExtendedSubmit(event){event.preventDefault();const form=eve
   let result;
   const [service,action]=id.split('-');
   if(infrastructureIds.includes(service)){
-    const payload={...data,action};for(const key of ['memory','replicas','port','threshold'])if(key in payload)payload[key]=Number(payload[key]);if(service==='ecs'&&payload.command)payload.command=JSON.parse(payload.command);
+    const payload={...data,action};for(const key of ['memory','replicas','port','threshold'])if(key in payload)payload[key]=Number(payload[key]);if(service==='ecs'&&payload.command)payload.command=JSON.parse(payload.command);if(service==='ecs'&&action==='service'){if(payload.launchType==='FARGATE'){const [cpu,memory]=payload.taskSize.split(':').map(Number);payload.cpu=cpu;payload.memory=memory;}delete payload.taskSize;}
     result=await post(`/api/${service}`,payload);
   }else if(id==='layer-publish')result=await post('/api/layers',{...data,files:JSON.parse(data.files)});
   else if(id==='bucket-config')result=await post('/api/bucket-config',{name:data.name,versioning:data.versioning==='true',lifecycle:{prefix:data.prefix,expirationDays:Number(data.expirationDays),noncurrentDays:Number(data.noncurrentDays)}});
@@ -86,7 +83,7 @@ document.addEventListener('click',event=>{
     else if(action==='table-backup'||action==='table-restore'){if(action==='table-restore'&&!confirm('Replace the table with this backup?'))return;result=await post('/api/table-backup',{name,action:action==='table-backup'?'create':'restore',id:button.dataset.id});}
     else {
       const [service,operation]=action.split('-');if(operation==='terminate'&&!confirm(`Terminate ${name} and remove its container disk?`))return;
-      result=await post(`/api/${service}`,{action:operation,name,tag:button.dataset.tag,service:button.dataset.service});
+      result=await post(`/api/${service}`,{action:operation,name,tag:button.dataset.tag,service:button.dataset.service,task:button.dataset.task});
     }
     results[view]=result;await refresh();if(action==='ec2-start')await connectTerminal(name);toast('Operation completed.');
   });

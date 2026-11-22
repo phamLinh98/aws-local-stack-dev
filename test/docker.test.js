@@ -67,3 +67,27 @@ test('MySQL table browser lists schema, columns and paginated values without pre
   const page=await post('/api/rds',{action:'browse',name:'mysql-browser',table:'lesson',schema:'lab',limit:1});assert.equal(page.total,2);assert.equal(page.rows[0].id,'9007199254740993');assert.equal(page.rows[0].optional,null);assert.equal(page.columns[1].name,'title');
   const next=await post('/api/rds',{action:'browse',name:'mysql-browser',table:'lesson',schema:'lab',limit:1,offset:1});assert.equal(next.rows[0].title,'next');
 });
+
+test('Fargate enforces CPU/memory and exposes live cluster/task/container state and failures',async()=>{
+  await post('/api/ecs',{action:'create',name:'fargate-cluster'});
+  await post('/api/ecs',{action:'service',name:'fargate-cluster',service:'invalid',launchType:'FARGATE',cpu:256,memory:128,image:'alpine:3.21'},400);
+  let service=await post('/api/ecs',{action:'service',name:'fargate-cluster',service:'worker',launchType:'FARGATE',cpu:256,memory:512,image:'alpine:3.21',replicas:2,command:['sh','-c','echo stdout-message; echo stderr-message >&2; sleep 300']});
+  const info=await docker.inspect(service.tasks[0].container);assert.equal(info.HostConfig.NanoCpus,250000000);assert.equal(info.HostConfig.Memory,512*1048576);assert.equal(info.Config.Labels['local.aws.lab.launchType'],'FARGATE');
+  let state=await fetch(url+'/api/infrastructure').then(r=>r.json());let cluster=state.clusters.find(c=>c.name==='fargate-cluster');assert.equal(cluster.running,2);assert.equal(cluster.taskCount,2);assert.equal(cluster.services[0].deploymentStatus,'STABLE');
+  const task=cluster.services[0].tasks[0];assert.equal(task.lastStatus,'RUNNING');assert.equal(task.image,'alpine:3.21');assert.equal(task.memoryMB,512);assert.ok(task.containerId);assert.ok(task.networks.length);
+  const logs=await post('/api/ecs',{action:'logs',name:'fargate-cluster',service:'worker',task:task.taskId});assert.match(logs.logs,/stdout-message/);assert.match(logs.logs,/stderr-message/);
+  await docker.command(['stop','-t','1',task.container]);state=await fetch(url+'/api/infrastructure').then(r=>r.json());cluster=state.clusters.find(c=>c.name==='fargate-cluster');assert.equal(cluster.running,1);assert.equal(cluster.services[0].deploymentStatus,'DEGRADED');assert.equal(cluster.services[0].tasks[0].lastStatus,'STOPPED');
+  await post('/api/ecs',{action:'scale',name:'fargate-cluster',service:'worker',replicas:1});await stop();await start();state=await fetch(url+'/api/infrastructure').then(r=>r.json());assert.equal(state.clusters.find(c=>c.name==='fargate-cluster').services[0].launchType,'FARGATE');
+  await post('/api/ecs',{action:'scale',name:'fargate-cluster',service:'worker',replicas:0});
+  await post('/api/ecs',{action:'service',name:'fargate-cluster',service:'failed',launchType:'FARGATE',cpu:256,memory:512,image:'alpine:3.21',replicas:1,command:['sh','-c','echo failed >&2; exit 7']});
+  await new Promise(r=>setTimeout(r,100));state=await fetch(url+'/api/infrastructure').then(r=>r.json());const failed=state.clusters.find(c=>c.name==='fargate-cluster').services.find(s=>s.name==='failed');assert.equal(failed.deploymentStatus,'DEGRADED');assert.equal(failed.tasks[0].exitCode,7);assert.ok(failed.events.length);
+  await post('/api/ecs',{action:'scale',name:'fargate-cluster',service:'failed',replicas:0});
+});
+
+test('Fargate nginx serves HTTP and exposes its mapped container port',async()=>{
+  await post('/api/ecs',{action:'create',name:'fargate-web'});
+  const service=await post('/api/ecs',{action:'service',name:'fargate-web',service:'nginx',launchType:'FARGATE',cpu:256,memory:512,image:'nginx:alpine',port:80,replicas:1});
+  let response;for(let i=0;i<30;i++){try{const state=await fetch(url+'/api/infrastructure').then(r=>r.json());const task=state.clusters.find(c=>c.name==='fargate-web').services[0].tasks[0];const binding=task.ports['80/tcp'][0];response=await fetch('http://127.0.0.1:'+binding.HostPort);if(response.ok)break;}catch{}await new Promise(r=>setTimeout(r,200));}
+  assert.ok(response?.ok,'Nginx should serve HTTP');assert.match(await response.text(),/Welcome to nginx/);
+  await post('/api/ecs',{action:'scale',name:'fargate-web',service:'nginx',replicas:0});
+});
