@@ -20,7 +20,9 @@ test('Java, C# and Go execute real compiled handlers with source layers',async()
     const result=await post('/api/functions/test-'+name+'/invoke',{event:{test:name}});assert.ok(!result.error,JSON.stringify(result));assert.deepEqual(name==='java'?result.result:result.result.input,{test:name});console.log(name,'completed',result.durationMs+'ms');
   }
 });
-test('EC2 enforces real cgroup limits and a total 1 GB budget, supports shell and commit',async()=>{
+test('EC2 enforces real cgroup limits and a total 1 GB budget, supports shell and commit',async(t)=>{
+  const existing=await docker.list('ec2');
+  for(const c of existing){if((await docker.inspect(c.ID)).State.Running){t.skip('EC2 budget is already allocated by another workspace; leave its containers untouched.');return;}}
   const first=await post('/api/ec2',{action:'create',name:'test-a',memory:512});
   const info=await docker.inspect(first.container);assert.equal(info.HostConfig.Memory,512*1024*1024);assert.equal(info.HostConfig.MemorySwap,512*1024*1024);
   await post('/api/ec2',{action:'create',name:'test-b',memory:512});
@@ -49,5 +51,19 @@ test('RDS PostgreSQL retains SQL data across database and app restarts; metrics 
   await post('/api/rds',{action:'query',name:'test-db',sql:"CREATE TABLE lesson(id int primary key, value text); INSERT INTO lesson VALUES(1, 'durable');"});
   await post('/api/rds',{action:'stop',name:'test-db'});await stop();await start();await post('/api/rds',{action:'start',name:'test-db'});
   let result;for(let i=0;i<20;i++){try{result=await post('/api/rds',{action:'query',name:'test-db',sql:'SELECT * FROM lesson;'});break;}catch{await new Promise(r=>setTimeout(r,1000));}}assert.match(result.stdout,/durable/);
+  const tables=await post('/api/rds',{action:'tables',name:'test-db'});assert.ok(tables.tables.some(t=>t.name==='lesson'&&t.schema==='public'));
+  const page=await post('/api/rds',{action:'browse',name:'test-db',schema:'public',table:'lesson',limit:1});assert.equal(page.total,1);assert.equal(page.rows[0].value,'durable');assert.equal(page.columns[0].name,'id');
+  assert.equal((await post('/api/rds',{action:'browse',name:'test-db',schema:'public',table:'lesson',offset:1})).rows.length,0);
+  await post('/api/rds',{action:'browse',name:'test-db',schema:'public',table:'lesson; DROP TABLE lesson'},400);
+  await post('/api/rds',{action:'browse',name:'test-db',schema:'public',table:'lesson',limit:1000},400);
   await post('/api/cloudwatch',{action:'sample'});const infra=await fetch(url+'/api/infrastructure').then(r=>r.json());assert.ok(infra.metrics.some(m=>m.name==='MemoryMB'));
+});
+
+test('MySQL table browser lists schema, columns and paginated values without precision loss',async()=>{
+  await post('/api/rds',{action:'create',name:'mysql-browser',engine:'mysql'});
+  let ready=false;for(let i=0;i<60;i++){try{await post('/api/rds',{action:'query',name:'mysql-browser',sql:'SELECT 1;'});ready=true;break;}catch{await new Promise(r=>setTimeout(r,1000));}}assert.ok(ready,'MySQL startup');
+  await post('/api/rds',{action:'query',name:'mysql-browser',sql:"CREATE TABLE lesson(id bigint primary key, title varchar(100), optional varchar(20)); INSERT INTO lesson VALUES(9007199254740993, 'hello', NULL), (9007199254740994, 'next', 'value');"});
+  const tables=await post('/api/rds',{action:'tables',name:'mysql-browser'});assert.ok(tables.tables.some(t=>t.name==='lesson'&&t.schema==='lab'));
+  const page=await post('/api/rds',{action:'browse',name:'mysql-browser',table:'lesson',schema:'lab',limit:1});assert.equal(page.total,2);assert.equal(page.rows[0].id,'9007199254740993');assert.equal(page.rows[0].optional,null);assert.equal(page.columns[1].name,'title');
+  const next=await post('/api/rds',{action:'browse',name:'mysql-browser',table:'lesson',schema:'lab',limit:1,offset:1});assert.equal(next.rows[0].title,'next');
 });

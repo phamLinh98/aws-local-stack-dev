@@ -12,8 +12,8 @@ function infrastructurePage(id) {
   let html=heading(service.title,service.description)+dockerNotice;
   if(id==='ec2') {
     html+=`<div class="notice">EC2 learning model: Linux containers, not virtual machines. Total running EC2 limits ≤ 1 GB, excluding Docker engine, databases and other services. Stopping keeps the writable disk; terminating removes it.</div>`;
-    html+=formPanel('Launch instance','ec2-create',field('Instance name','name','my-instance')+field('Image','image','alpine:3.21')+memoryField(128),'Launch instance');
-    html+=resourceCards(infrastructure.instances,v=>`<h2>${escapeHtml(v.name)}</h2><p class="subtitle">${escapeHtml(v.image)} · ${v.memory} MB · <strong>${escapeHtml(v.status)}</strong></p><div class="form-actions">${actionButton('Start','ec2-start',v.name)}${actionButton('Stop','ec2-stop',v.name)}${actionButton('Terminate','ec2-terminate',v.name)}</div><form data-ext-form="ec2-exec"><input type="hidden" name="name" value="${escapeHtml(v.name)}"><label>Container shell command<input name="command" value="uname -a; cat /etc/os-release"></label><button class="button">Execute</button></form><form data-ext-form="ec2-commit" class="compact-form"><input type="hidden" name="name" value="${escapeHtml(v.name)}"><label>Image tag for commit<input name="image" value="lab-${escapeHtml(v.name)}:latest"></label><button class="button">Commit image</button></form>`);
+    html+=formPanel('Launch instance','ec2-create',field('Instance name','name','my-instance')+field('Image','image','ubuntu:24.04')+memoryField(128),'Launch instance');
+    html+=resourceCards(infrastructure.instances,v=>`<h2>${escapeHtml(v.name)}</h2><p class="subtitle">${escapeHtml(v.image)} · ${v.memory} MB · <strong>${escapeHtml(v.status)}</strong></p><div class="form-actions">${actionButton('Start','ec2-start',v.name)}${actionButton('Stop','ec2-stop',v.name)}${actionButton('Terminate','ec2-terminate',v.name)}</div>${ec2TerminalPanel(v)}<form data-ext-form="ec2-commit" class="compact-form"><input type="hidden" name="name" value="${escapeHtml(v.name)}"><label>Image tag for commit<input name="image" value="lab-${escapeHtml(v.name)}:latest"></label><button class="button">Commit image</button></form>`);
   }
   if(id==='ecr') {
     html+=`<section class="panel panel-body"><h2>Local Docker registry</h2><p class="subtitle">${escapeHtml(infrastructure.registry?.endpoint||'localhost:5001')} · persistent registry volume · local push/pull</p><div class="form-actions">${actionButton('Start registry','ecr-registry','')}</div><p class="hint">Create a repository, tag an existing/local or public image, then push it. Use the resulting image URL in ECS. Private upstream registries require your own Docker login.</p></section>`;
@@ -26,7 +26,7 @@ function infrastructurePage(id) {
   }
   if(id==='rds') {
     html+=formPanel('Create database instance','rds-create',field('Database name','name','learning-db')+selectField('Engine','engine',[['postgres','PostgreSQL 16 · 128 MB'],['mysql','MySQL 8.4 · 512 MB']],'postgres'),'Create database');
-    html+=resourceCards(infrastructure.databases,d=>`<h2>${escapeHtml(d.name)}</h2><p class="subtitle">${escapeHtml(d.engine)} · ${escapeHtml(d.status)} · ${d.memory} MB</p><p class="hint">${ports(d.ports)}<br>Persistent Docker volume: ${escapeHtml(d.volume)}. Initial startup may take a minute.</p><div class="form-actions">${actionButton('Start','rds-start',d.name)}${actionButton('Stop','rds-stop',d.name)}${actionButton('Connection credentials','rds-credentials',d.name)}</div><form data-ext-form="rds-query"><input type="hidden" name="name" value="${escapeHtml(d.name)}"><label>SQL editor<textarea name="sql" rows="5" spellcheck="false">SELECT version();</textarea></label><button class="button primary">Run SQL</button></form>`);
+    html+=resourceCards(infrastructure.databases,d=>`<h2>${escapeHtml(d.name)}</h2><p class="subtitle">${escapeHtml(d.engine)} · ${escapeHtml(d.status)} · ${d.memory} MB</p><p class="hint">${ports(d.ports)}<br>Persistent Docker volume: ${escapeHtml(d.volume)}. Initial startup may take a minute.</p><div class="form-actions">${actionButton('Start','rds-start',d.name)}${actionButton('Stop','rds-stop',d.name)}${actionButton('Connection credentials','rds-credentials',d.name)}</div>${rdsTableBrowser(d)}<form data-ext-form="rds-query"><input type="hidden" name="name" value="${escapeHtml(d.name)}"><label>SQL editor<textarea name="sql" rows="5" spellcheck="false">SELECT version();</textarea></label><button class="button primary">Run SQL</button></form>`);
   }
   if(id==='cloudwatch') {
     html+=`<section class="panel panel-body"><h2>Metrics & alarms</h2><p class="subtitle">Lambda invocations, errors and duration are recorded automatically. Sample Docker CPU/memory on demand.</p><div class="form-actions">${actionButton('Sample container metrics','cloudwatch-sample','')}</div></section>`;
@@ -62,7 +62,7 @@ async function handleExtendedSubmit(event){event.preventDefault();const form=eve
   else if(id==='lifecycle-run'){if(!confirm('Apply expiration rules now? This may remove current objects and old versions.'))return;result=await post('/api/lifecycle/run',{daysAhead:Number(data.daysAhead)});}
   else if(id==='table-config')result=await post('/api/table-config',data);
   else if(id==='queue-config')result=await post('/api/queue-config',{...data,visibilityTimeout:Number(data.visibilityTimeout),maxReceiveCount:Number(data.maxReceiveCount)});
-  results[view]=result;await refresh();toast('Operation completed.');
+  results[view]=result;await refresh();if(id==='ec2-create')await connectTerminal(data.name);toast('Operation completed.');
 });}
 document.addEventListener('change',event=>{
   if(event.target.closest('#lambda-config-form')&&current()){
@@ -75,6 +75,7 @@ document.addEventListener('click',event=>{
   const action=button.dataset.ext,name=button.dataset.name;
   task(async()=>{
     let result;
+    if(action.startsWith('rds-table')){await handleRdsBrowse(button);return;}
     if(action==='runtime-prepare'){if(name==='node'){toast('Node.js uses the current local runtime.');return;}toast('Preparing Docker runtime. The first download may take several minutes.');result=await post('/api/runtime/prepare',{runtime:name});}
     else if(action==='s3-versions'){
       const {versions}=await api(`/api/buckets/${encodeURIComponent(name)}/versions`);
@@ -87,6 +88,51 @@ document.addEventListener('click',event=>{
       const [service,operation]=action.split('-');if(operation==='terminate'&&!confirm(`Terminate ${name} and remove its container disk?`))return;
       result=await post(`/api/${service}`,{action:operation,name,tag:button.dataset.tag,service:button.dataset.service});
     }
-    results[view]=result;await refresh();toast('Operation completed.');
+    results[view]=result;await refresh();if(action==='ec2-start')await connectTerminal(name);toast('Operation completed.');
   });
 });
+
+const rdsBrowsers=Object.create(null);
+function cellValue(value){if(value===null)return '<span class="null-value">NULL</span>';if(value===undefined)return '<span class="null-value">—</span>';return `<span class="data-cell">${escapeHtml(typeof value==='object'?JSON.stringify(value):String(value))}</span>`;}
+function attributeValue(value){
+  if(!value)return undefined;
+  if('NULL'in value)return null;
+  if('S'in value)return value.S;if('N'in value)return value.N;if('BOOL'in value)return value.BOOL;
+  if('M'in value)return Object.fromEntries(Object.entries(value.M).map(([k,v])=>[k,attributeValue(v)]));
+  if('L'in value)return value.L.map(attributeValue);
+  return value.SS??value.NS??value.BS??value.B??value;
+}
+function dynamoGrid(item){
+  if(!item.items.length)return '<div class="empty">No items yet. Add your first item below.</div>';
+  const columns=[...new Set([...item.keys,...item.items.flatMap(row=>Object.keys(row))])];
+  return `<div class="table-wrap"><table class="data-grid"><thead><tr>${columns.map(k=>`<th>${escapeHtml(k)}${item.keys.includes(k)?' <span class="badge">KEY</span>':''}</th>`).join('')}<th>Actions</th></tr></thead><tbody>${item.items.map((row,i)=>`<tr>${columns.map(k=>`<td>${cellValue(attributeValue(row[k]))}${row[k]?`<small class="cell-type">${escapeHtml(Object.keys(row[k])[0])}</small>`:''}</td>`).join('')}<td><div class="actions"><button class="button small-button" data-action="edit-item" data-index="${i}">Edit JSON</button><button class="button small-button danger" data-action="delete-item" data-index="${i}">Delete</button></div></td></tr>`).join('')}</tbody></table></div>`;
+}
+function rdsTableBrowser(database){
+  const browser=rdsBrowsers[database.name];
+  const button=(label,operation,index)=>actionButton(label,'rds-table-'+operation,database.name,index===undefined?'':`data-index="${index}"`);
+  let body='';
+  if(!browser)body='<p class="hint">Load the table list to explore schemas and rows.</p>';
+  else if(!browser.tables.length)body='<div class="empty">No user tables. Create a table with SQL below, then reload the list.</div>';
+  else {
+    body=`<div class="rds-browser"><div class="rds-table-list">${browser.tables.map((t,i)=>button(`${t.schema}.${t.name}`,'select',i)).join('')}</div><div class="rds-table-detail">`;
+    const page=browser.page;
+    if(page){
+      body+=`<h3>${escapeHtml(page.table.schema)}.${escapeHtml(page.table.name)}</h3><div class="form-actions">${button('Refresh rows','refresh')}<span class="hint">${page.total} rows · text display preserves numeric precision</span></div><details><summary>Columns & structure (${page.columns.length})</summary><div class="table-wrap"><table><thead><tr><th>Column</th><th>Type</th><th>Nullable</th><th>Default</th></tr></thead><tbody>${page.columns.map(c=>`<tr><td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.type)}</td><td>${escapeHtml(c.nullable)}</td><td>${cellValue(c.defaultValue)}</td></tr>`).join('')}</tbody></table></div></details><div class="table-wrap"><table class="data-grid"><thead><tr>${page.columns.map(c=>`<th>${escapeHtml(c.name)}</th>`).join('')}</tr></thead><tbody>${page.rows.map(row=>`<tr>${page.columns.map(c=>`<td>${cellValue(row[c.name])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>${!page.rows.length?'<div class="empty">This table has no rows.</div>':''}<div class="form-actions">${page.offset>0?button('Previous','previous'):''}<span class="hint">${page.total?`${page.offset+1}–${Math.min(page.offset+page.rows.length,page.total)}`:'0'} of ${page.total}</span>${page.offset+page.rows.length<page.total?button('Next','next'):''}</div><p class="hint">50 rows per page. Data is read-only here; use the SQL editor to insert/update/delete. Refresh after SQL changes.</p>`;
+    }else body+='<p class="hint">Select a table to view its data.</p>';
+    body+='</div></div>';
+  }
+  return `<section class="nested-resource"><div class="panel-head"><h3>Tables & data</h3>${button('Load / reload tables','list')}</div>${body}</section>`;
+}
+async function handleRdsBrowse(button){
+  const name=button.dataset.name,operation=button.dataset.ext.slice('rds-table-'.length);
+  if(operation==='list'){
+    const result=await post('/api/rds',{name,action:'tables'});rdsBrowsers[name]={tables:result.tables};
+    if(result.tables.length){rdsBrowsers[name].page=await post('/api/rds',{name,action:'browse',table:result.tables[0].name,schema:result.tables[0].schema});}
+  }else {
+    const browser=rdsBrowsers[name],page=browser.page;
+    const table=operation==='select'?browser.tables[Number(button.dataset.index)]:page.table;
+    const offset=operation==='next'?page.offset+page.limit:operation==='previous'?Math.max(0,page.offset-page.limit):0;
+    const result=await post('/api/rds',{name,action:'browse',table:table.name,schema:table.schema,offset});browser.page=result;
+  }
+  render();
+}

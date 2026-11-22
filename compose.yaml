@@ -9,7 +9,7 @@ services:
       LAB_CONTAINER: "1"
       DATA_DIR: /data
       LAB_INTERNAL_ENDPOINT: http://console:8001
-      LAB_NETWORK: local-aws-lab
+      LAB_NETWORK: local-aws-console
       REGISTRY_PORT: ${REGISTRY_PORT:-5001}
     volumes:
       - workspace:/data
@@ -29,4 +29,4 @@ volumes:
   workspace:
 networks:
   lab:
-    name: local-aws-lab
+    name: local-aws-console

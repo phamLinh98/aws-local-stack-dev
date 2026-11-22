@@ -66,7 +66,7 @@ function createApp(options = {}) {
     if (req.headers.origin && req.headers.origin !== `${req.protocol}://${req.headers.host}`) return res.status(403).json({ message: 'Cross-origin access is disabled.' });
     if (req.path.startsWith('/api/') && !['GET', 'HEAD'].includes(req.method) && req.headers['x-local-console'] !== '1') return res.status(403).json({ message: 'Missing local console header.' });
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'");
     next();
   });
   app.use((req, res, next) => {
@@ -308,6 +308,8 @@ function createApp(options = {}) {
     if (!handler) fail('Unsupported operation.', 'UnsupportedOperation');
     const result = handler(action, req.body || {}, req); record(prefix, action, 'SDK'); res.json(result);
   });
+  app.get('/vendor/xterm.js',(req,res)=>res.sendFile(require.resolve('@xterm/xterm')));
+  app.get('/vendor/xterm.css',(req,res)=>res.sendFile(path.join(path.dirname(require.resolve('@xterm/xterm')),'../css/xterm.css')));
   app.use(express.static(path.join(__dirname, 'public')));
   // Path-style S3 subset for AWS SDK clients. The console uses the same in-memory objects.
   app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public/index.html')));
